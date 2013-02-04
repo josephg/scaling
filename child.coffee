@@ -1,20 +1,13 @@
 mongo = require 'mongoskin'
 
-db = mongo.db('localhost:27017/tx?auto_reconnect', safe:true)
+db = mongo.db('localhost:27017/tx?auto_reconnect', safe:false)
 collection = db.collection('things')
 
-distributedUpdates = (done) ->
+distributedUpdates = (count, done) ->
   v = 0
   sum = 0
 
-  next = ->
-    if v < 100
-      iter()
-    else
-      console.log "sum should be #{sum}"
-      done?()
-
-  do iter = ->
+  tryUpdate = ->
     inc = Math.floor Math.random() * 100
     collection.update {_id:1, v}, {$set: {sum:sum + inc, v:v + 1}}, (err, result) ->
       throw err if err
@@ -27,11 +20,24 @@ distributedUpdates = (done) ->
           next()
 
       else
-        console.log "added #{inc} -> v #{v}"
-        v = v + 1
+        #console.log "added #{inc} -> v #{v}"
         sum += inc
+        v++
+        count--
         next()
 
-process.title = 'slave'
-distributedUpdates -> db.close()
+  do next = ->
+    if count > 0
+      tryUpdate()
+    else
+      #console.log "sum should be #{sum}"
+      done?()
 
+
+process.title = 'slave'
+
+process.send 'ready'
+process.on 'message', (m) ->
+  distributedUpdates m, ->
+    process.send 'done'
+    db.close()
